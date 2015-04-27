@@ -5,7 +5,7 @@
 # -----------------------------------------------------------------------------
 
 # You will need to update this path
-SETTINGS_PATH=/sampa/share/Xilinx/14.7/ISE_DS/settings64.sh
+SETTINGS_PATH=/opt/Xilinx/14.7/ISE_DS/settings64.sh
 DESIGN_DIR=design
 
 if [ ! SETTINGS_PATH]; then

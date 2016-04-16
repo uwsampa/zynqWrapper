@@ -6,18 +6,23 @@
 
 module zynqWrapper
 (
-    // inputs
+    // clock and reset
     CLK,
     RST_N,
+
+    // event bus
     evento,
+    eventi,
+
+    // axi master input
     arready,
     rvalid,
     rdata,
     awready,
     wready,
     bvalid,
-    // outputs
-    eventi,
+
+    // axi master output
     arvalid,
     awvalid,
     rready,
@@ -27,7 +32,17 @@ module zynqWrapper
     awlen,
     araddr,
     awaddr,
-    wdata
+    wdata,
+
+    // read and write control
+    READ_ADDR_BASE,
+    WRITE_ADDR_BASE,
+
+    // ram ports
+    ram_din,
+    ram_reg_adr,
+    ram_mem_adr,
+    ram_we
 );
 
     `include "macros.inc"
@@ -56,6 +71,17 @@ module zynqWrapper
     output [ADDR_WIDTH-1:0]         araddr;
     output [ADDR_WIDTH-1:0]         awaddr;
     output [ACP_WIDTH-1:0]          wdata;
+
+    input [ADDR_WIDTH-1:0]          READ_ADDR_BASE;
+    input [ADDR_WIDTH-1:0]          WRITE_ADDR_BASE;
+
+
+    // ram ports
+    input [ACP_WIDTH-1:0] ram_din;
+    input [11:0] ram_reg_adr;
+    input [2:0] ram_mem_adr;
+    input ram_we;
+
 
     localparam READ_BURSTS        = BATCH_SIZE/AXI_BURST_LEN;
     localparam WRITE_BURSTS       = BATCH_SIZE/AXI_BURST_LEN;
@@ -371,6 +397,21 @@ module zynqWrapper
         .FULL_N(),
         .COUNT(fifo_count),
         .CLR(1'b0)
+    );
+
+    ram #(
+        .DEPTH(4096),
+        .WIDTH(ACP_WIDTH),
+        .MEMSEL_W(3),
+        .REGSEL_W(12),
+        .MEM_ADDR(3'b000)
+    )ram_test(
+        .clk(CLK),
+        .mem_adr(ram_mem_adr),
+        .reg_adr(ram_reg_adr),
+        .din(ram_din),
+        .we(ram_we),
+        .dout(ram_dout)
     );
 
 endmodule

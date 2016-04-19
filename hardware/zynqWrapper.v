@@ -281,6 +281,18 @@ module zynqWrapper
     /////////////////////////////
     // Write State Machine
     /////////////////////////////
+    `REG(ram_read_addr, reg, 12, 0);
+    
+    wire [ACP_WIDTH-1:0] ram_dout;
+    `REG(ram_dout_reg, reg, ACP_WIDTH, 0);
+    always@(*) begin
+        ram_dout_reg_d = 0;
+        if(RST_N) begin
+            ram_dout_reg_d = ram_dout;
+        end
+    end
+    
+    wire [ACP_WIDTH-1:0] ram_dout;
 
     always@(*) begin
 
@@ -299,6 +311,8 @@ module zynqWrapper
         wr_len_d            = wr_len;
         wr_addr_d           = wr_addr;
         wr_data_d           = wr_data;
+        
+        ram_read_addr_d     = ram_read_addr;
 
         if(RST_N) begin
 
@@ -318,6 +332,9 @@ module zynqWrapper
                         wr_len_d            = AXI_BURST_LEN-1;
                         wr_addr_d           = WRITE_ADDR_BASE;
                         wstate_d            = STATE_WR_RQ0;
+                        
+                        // added
+                        ram_read_addr_d     = 0;
                     end else
                         wstate_d            = STATE_IDLE;
                 end
@@ -344,8 +361,10 @@ module zynqWrapper
                         wstate_d            = STATE_WR_RQ0;
                     end
                 end
-                STATE_WROTE0:
+                STATE_WROTE0: begin
                     wstate_d                = STATE_WROTE1;
+                end
+                    
                 STATE_WROTE1: begin
                     if (wready_i == 1'b1) begin
                         if (wr_cntr == AXI_BURST_LEN-1) begin
@@ -360,7 +379,12 @@ module zynqWrapper
                             npu_deq         = 1'b1;
                             wr_cntr_d       = wr_cntr + {{(WR_CNTR_WIDTH-1){1'b0}},1'b1};
                             wrdata_val_d    = 1'b1;
-                            wr_data_d       = npu_out;
+                            
+                            // added
+                            ram_read_addr_d = ram_read_addr + 12'b1;
+                            wr_data_d       = npu_out + ram_dout_reg;
+                            
+                            //wr_data_d       = npu_out;
                             wstate_d        = STATE_WROTE0;
                         end
                     end else
@@ -399,6 +423,9 @@ module zynqWrapper
         .CLR(1'b0)
     );
 
+    wire [11:0] ram_reg_addr_in;
+    assign ram_reg_addr_in = ram_reg_adr | ram_read_addr;
+
     ram #(
         .DEPTH(4096),
         .WIDTH(ACP_WIDTH),
@@ -408,7 +435,7 @@ module zynqWrapper
     )ram_test(
         .clk(CLK),
         .mem_adr(ram_mem_adr),
-        .reg_adr(ram_reg_adr),
+        .reg_adr(ram_reg_addr_in),
         .din(ram_din),
         .we(ram_we),
         .dout(ram_dout)

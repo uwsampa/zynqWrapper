@@ -72,7 +72,8 @@ module axi_top
     // AXI-Stream Slave (Configuration)
     S_AXIS_TDATA,
     S_AXIS_TREADY,
-    S_AXIS_TVALID,
+    S_AXIS_TVALID
+    
 );
     `include "macros.inc"
     `include "params.inc"
@@ -178,6 +179,126 @@ module axi_top
     
     wire [31:0] weight_control;
 
+
+
+    `REG(axis_data,  reg, ACP_WIDTH, 0);
+    `REG(axis_valid, reg, 1, 0);
+    always @(*) begin
+        axis_data_d  = 0;
+        axis_valid_d = 0;
+        if(RST_N) begin
+            axis_data_d  = S_AXIS_TDATA;
+            axis_valid_d = S_AXIS_TVALID; 
+        end
+    end
+    assign S_AXIS_TREADY = 1'b1;
+
+
+
+    `REG(ram_din, reg, ACP_WIDTH, 0);
+    
+    `REG(ram_reg_adr, reg, 12, 0);
+    
+    wire [11:0] ram_input_length;
+    assign ram_input_length = weight_control[11:0];
+    
+    wire [2:0]           ram_mem_adr;
+    assign ram_mem_adr = weight_control[14:12];
+    
+    `REG(ram_we, reg, 1, 0);
+
+
+
+      
+    localparam STATE_IDLE       = 0;
+    localparam STATE_RAM_READ   = 1;
+    localparam STATE_RAM_IGNORE = 2;
+    `REG(ram_rstate, reg, 3, STATE_IDLE);
+    
+    always @(*) begin
+        ram_rstate_d  = ram_rstate;
+        ram_reg_adr_d = ram_reg_adr;
+        ram_din_d     = ram_din;
+        ram_we_d      = 1'b0;
+ 
+        if (RST_N) begin
+        
+            case(ram_rstate)
+            
+                STATE_IDLE: begin
+                    // data incoming
+                    if(axis_valid == 1'b1) begin
+                    
+                        // start transfer if control reg says so
+                        if(|weight_control) begin
+                            ram_reg_adr_d = 0;
+                            ram_din_d     = axis_data;
+                            ram_rstate_d  = STATE_RAM_READ;
+                            ram_we_d      = 1'b1;
+                            
+                        // otherwise ignore data
+                        end else begin
+                            ram_rstate_d  = STATE_RAM_IGNORE;
+                        end
+                    
+                    // no data -- idle
+                    end else begin
+                        ram_rstate_d = STATE_IDLE;                        
+                    end
+                
+                end
+                
+                STATE_RAM_READ: begin
+                
+                    // still data incoming
+                    if(axis_valid == 1'b1) begin
+                        
+                        // but ram is already full -- excess data, ignore rest
+                        if (ram_reg_adr == ram_input_length - 1) begin
+                            ram_rstate_d = STATE_RAM_IGNORE;
+                            
+                        // ram is not full -- continue transfer at next offset                           
+                        end else begin
+                            ram_reg_adr_d = ram_reg_adr + 12'b1;
+                            ram_din_d     = axis_data;                        
+                            ram_rstate_d  = STATE_RAM_READ;
+                            ram_we_d      = 1'b1;
+                        end
+                    
+                    
+                    // no data this cycle
+                    end else begin
+                    
+                        // transfer finished, go idle
+                        // NOTE: if transfer isn't actually finished, (e.g. between bursts)
+                        // this would re-start the ram write with the rest of the incoming data
+                        if (ram_reg_adr == ram_input_length - 1) begin
+                            ram_rstate_d = STATE_IDLE;
+                            ram_reg_adr_d = 0;
+                
+                        // transfer stalled, spin
+                        end else begin
+                            ram_rstate_d = STATE_RAM_READ;
+                        end
+                        
+                    end
+                end
+                
+                
+                STATE_RAM_IGNORE: begin
+                    if(axis_valid == 1'b1) begin
+                        ram_rstate_d = STATE_RAM_IGNORE;
+                    end else begin
+                        ram_rstate_d = STATE_IDLE;
+                    end
+                end
+            
+            
+            endcase
+        
+        end
+    end
+    
     zynqWrapper npu (
         // clock and reset
         .CLK(CLK),
@@ -216,113 +337,6 @@ module axi_top
         .ram_mem_adr(ram_mem_adr),
         .ram_we(ram_we)
     );
-
-
-
-
-    `REG(ram_din, reg, ACP_WIDTH, 0);
-    
-    `REG(ram_reg_adr, reg, 12, 0);
-    
-    wire [11:0] ram_input_length;
-    assign ram_input_length = weight_control[11:0];
-    
-    wire [2:0]           ram_mem_adr;
-    assign ram_mem_adr = weight_control[14:12];
-    
-    `REG(ram_we, reg, 1, 0);
-
-
-    assign S_AXIS_TREADY = 1'b1;
-      
-    localparam STATE_IDLE       = 0;
-    localparam STATE_RAM_READ   = 1;
-    localparam STATE_RAM_IGNORE = 2;
-    `REG(ram_rstate, reg, 3, STATE_IDLE);
-    
-    always @(*) begin
-        ram_rstate_d  = ram_rstate;
-        ram_reg_adr_d = ram_reg_adr;
-        ram_din_d     = ram_din;
-        ram_we_d      = 1'b0;
- 
-        if (RST_N) begin
-        
-            case(ram_rstate)
-            
-                STATE_IDLE: begin
-                    // data incoming
-                    if(S_AXIS_TVALID == 1'b1) begin
-                    
-                        // start transfer if control reg says so
-                        if(|weight_control) begin
-                            ram_reg_adr_d = 0;
-                            ram_din_d     = S_AXIS_TDATA;
-                            ram_rstate_d  = STATE_RAM_READ;
-                            ram_we_d      = 1'b1;
-                            
-                        // otherwise ignore data
-                        end else begin
-                            ram_rstate_d  = STATE_RAM_IGNORE;
-                        end
-                    
-                    // no data -- idle
-                    end else begin
-                        ram_rstate_d = STATE_IDLE;                        
-                    end
-                
-                end
-                
-                STATE_RAM_READ: begin
-                
-                    // still data incoming
-                    if(S_AXIS_TVALID == 1'b1) begin
-                        
-                        // but ram is already full -- excess data, ignore rest
-                        if (ram_reg_adr == ram_input_length - 1) begin
-                            ram_rstate_d = STATE_RAM_IGNORE;
-                            
-                        // ram is not full -- continue transfer at next offset                           
-                        end else begin
-                            ram_reg_adr_d = ram_reg_adr + 12'b1;
-                            ram_din_d     = S_AXIS_TDATA;                        
-                            ram_rstate_d  = STATE_RAM_READ;
-                            ram_we_d      = 1'b1;
-                        end
-                    
-                    
-                    // no data this cycle
-                    end else begin
-                    
-                        // transfer finished, go idle
-                        // NOTE: if transfer isn't actually finished, (e.g. between bursts)
-                        // this would re-start the ram write with the rest of the incoming data
-                        if (ram_reg_adr == ram_input_length - 1) begin
-                            ram_rstate_d = STATE_IDLE;
-                
-                        // transfer stalled, spin
-                        end else begin
-                            ram_rstate_d = STATE_RAM_READ;
-                        end
-                        
-                    end
-                end
-                
-                
-                STATE_RAM_IGNORE: begin
-                    if(S_AXIS_TVALID == 1'b1) begin
-                        ram_rstate_d = STATE_RAM_IGNORE;
-                    end else begin
-                        ram_rstate_d = STATE_RAM_IDLE;
-                    end
-                end
-            
-            
-            endcase
-        
-        end
-    end
-    
     
 
 	slv_reg # ( 
@@ -355,8 +369,6 @@ module axi_top
 		.reg2_out(weight_control)
 	);
 
-
-    
 
     
 endmodule
